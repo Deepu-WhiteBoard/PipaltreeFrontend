@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react'
-import { Bell, ChevronDown, Menu, Plus,  X , Search } from 'lucide-react'
+import React, { useState, useEffect ,useRef } from 'react'
+import {  ChevronDown, Menu, X , Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom';
 import CreateCohortBox from '../components/CreateCohortBox';
+import axios from 'axios'
+
 
 
 
@@ -12,23 +14,38 @@ import CreateCohortBox from '../components/CreateCohortBox';
 const LandingPage = () => {
  // Mock data for action cards, cohorts, and brands
   const actionCards = [
-    { title: 'Invite People', count: 0, pendingCount: 0, description: 'Invite members to this organisation to collaborate and manage brands' },
-    { title: 'Create Brands', count: 4, description: 'Invite members to this organisation to collaborate and manage brands' },
-    { title: 'Surveys', count: 1, description: 'Invite members to this organisation to collaborate and manage brands' },
-    { title: 'Cohorts', count: 2, description: 'Invite members to this organisation to collaborate and manage brands' },
+    { title: 'People Invited', count: 0, pendingCount: 0, description: 'Invite members to this organisation to collaborate and manage brands' },
+    { title: 'Brands', count: 4, description: 'Create New brands here' },
+    { title: 'Surveys', count: 1, description: 'Add new Survays here' },
+    { title: 'Cohorts', count: 2, description: 'Create new Cohorts here' },
   ]
  
-  const cohorts = [
+ 
+
+
+  const defaultCohorts = [
     { name: 'Loyalists', status: 'In Progress', started: 'May 28, 2024', ended: '-', conversationsInitiated: '1000/5000', conversationsCompleted: '350/5000', nps: 25 },
     { name: 'Bangalore Loyalists', status: 'Completed', started: 'Jun 02, 2024', ended: 'Jun 18, 2024', conversationsInitiated: '5000', conversationsCompleted: '2000',  nps: 30 },
     { name: 'Mumbai Passives', status: 'Draft', started: 'Jun 02, 2024', ended: '-', conversationsInitiated: '-', conversationsCompleted: '-',  nps: '-' },
     { name: 'Hyderabad Loyalists', status: 'Scheduled', started: 'Jun 02, 2024', ended: '-', conversationsInitiated: '-', conversationsCompleted: '-',  nps: '-' },
   ]
+
+  const defaultBrands = ['Select Brand', 'Beautiful Homes', 'Asian Paints', 'Royale']
+  const defaultVariables = [{
+    "survey_id": "",
+    "name": "",
+    "brand": ""
+  }]
+
+
   
-  const brands = ['Select Brand', 'Beautiful Homes', 'Asian Paints', 'Royale']
-
-
+  const orgName = localStorage.getItem('REACT_APP_ORG_NAME') || 'Asian Paints';
+  //state hooks
+  const [brands, setBrands] = useState(defaultBrands);
+  const[cohorts, setCohorts] = useState(defaultCohorts);
+  const [variables, setVariables] = useState(defaultVariables);
   const [selectedBrand, setSelectedBrand] = useState(brands[0])
+  const [selectedBrandCohrots, setSelectedbrandcohorts] = useState(null)
   const [showActionCards, setShowActionCards] = useState(true)
   const [cohortStates, setCohortStates] = useState(cohorts.map(() => ({ initiated: false, summaryAvailable: false })))
   const [showNotification, setShowNotification] = useState(false)
@@ -36,7 +53,29 @@ const LandingPage = () => {
   const [openCreateCohortbox, setOpenCreateCohortBox] = useState(false)
   const navigate = useNavigate(); 
   const token = localStorage.getItem('token');
-  
+
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString)
+    return date.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).replace(/,/, '')
+  }
+ 
+  const loadCohortsFromResult = (result) => {
+    // Highlight: Mapping function to convert result to cohort state format
+    return {
+      name: result.name || '-',
+      status: result.run_info?.state || '-',
+      started: result.start_date ? formatDate(result.start_date) : '-', 
+      ended: result.end_date ? formatDate(result.end_date) : '-',
+      conversationsInitiated: result.run_info?.conversations_initiated?.toString() || '-',
+      conversationsCompleted: result.run_info?.conversations_completed?.toString() || '-',
+      // Highlight: Finding survey name based on survey_id
+      survey: variables.find(v => v.survey_id === result.survey_id)?.name || '-',
+      nps: result.nsp||'-' // Assuming NPS is not provided in the result object
+    }
+  }
+
+  // load login page if token not detected
   useEffect(() => {
     if (!token) {
         // Redirect to login if token is not found
@@ -44,15 +83,85 @@ const LandingPage = () => {
     }
   }, [token,navigate]);
 
+  useEffect(()=>{
+    const fetchVariableData = async () => {
+      try {
+        const response = await axios.get('/variables', {
+          headers: {
+            Authorization: `Bearer ${token}`,  // Add the token to the Authorization header
+          }
+        });
+          // Update state with the response data
+        setVariables(prevVariables => [...prevVariables, response.data.result.variables]);
+        console.log("response variables:"+ JSON.stringify(response.data.result.variables))
+                // Extract the brand from 'variables'
+                const { brand } = response.data.result.variables;
+
+                // Update the 'brands' state only if the brand is not already present
+                setBrands((prevBrands) => {
+                  if (!prevBrands.includes(brand)) {
+                    console.log(brand+" is added")
+                    return [...prevBrands, brand];  // Add the new brand if it's not already present
+                  }
+                  return prevBrands;  // If the brand is already in the state, return the previous state
+                });
+        
+      } catch (err) {
+        if (err.response && err.response.status === 401) {
+          // Navigate to /login if unauthorized
+          navigate('/login');
+        } else {
+          // Handle error state
+        console.error('API call error:', err);
+      }
+    }
+    };
+
+    fetchVariableData(); 
+  },[])
+
   const handleCreateCohortClick=()=> {
     setOpenCreateCohortBox(true);
   }
   const handleCreateCohortClose=()=>{
     setOpenCreateCohortBox(false);
   }
+
+
+  
   const handleBrandSelect = (brand) => {
-    setSelectedBrand(brand)
+    setSelectedBrand(brand);
+    const foundVariable =variables.find(variable=> variable.brand === brand);
+    const fetchCohortsData = async (surveyId)=>{      
+      try { 
+      console.log("var.survey_id"+variables.survey_id);
+      const response = await axios.get('/getCohorts', {
+        headers: {
+          Authorization: `Bearer ${token}`,  // Ensure token is defined in the current scope
+        },
+        params: { survey_id: surveyId }
+      });
+      console.log("cohorts response:" + JSON.stringify(response.data))
+      // Check if cohorts exist in the response
+      if (response.data?.result?.cohorts) {
+        const loadedCohorts = response.data.result.cohorts.map(loadCohortsFromResult)
+        setCohorts(loadedCohorts)
+        console.log("loadedCohorts:"+JSON.stringify(loadedCohorts))
+      }
+      else(console.log('no cohorts for current brand'))
+      }
+      catch(err){
+        console.error("getCohorts Api Error:", err)
+      } 
+    }
+    if(foundVariable){
+      fetchCohortsData(foundVariable.survey_id);
+    }
+    else(setCohorts(defaultCohorts));
   }
+
+
+  
   
   const handleCohortInitiate = (index) => {
     setCohortStates(prevStates => 
@@ -72,73 +181,131 @@ const LandingPage = () => {
     setShowNotification(true)
   }
 
-  return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center">
-            <Menu className="h-6 w-6 text-gray-500 mr-4" />
-            <img src="/placeholder.svg" alt="Asian Paints Logo" className="w-10 h-10 mr-2" />
-            <h1 className="text-xl font-semibold text-gray-800">Asian Paints</h1>
+
+  const TruncatedCell = ({ content, className }) => {
+    const cellRef = useRef(null);
+    const [isOverflowing, setIsOverflowing] = useState(false);
+  
+    useEffect(() => {
+      if (cellRef.current) {
+        setIsOverflowing(cellRef.current.scrollWidth > cellRef.current.clientWidth);
+      }
+    }, [content]);
+    // Table  render TruncatedCell feature add-on
+    return (
+      <div className={`relative ${className}`}>
+        <div ref={cellRef} className="truncate">
+          {content}
+        </div>
+        {isOverflowing && (
+          <div className="hidden group-hover:block absolute bg-gray-100 p-1 rounded shadow-md z-10 left-0 min-w-full">
+            {content}
           </div>
-          <div className="flex items-center space-x-4">
-            <Plus className="h-6 w-6 text-gray-500" />
-            <Bell className="h-6 w-6 text-gray-500" />
-            <div className="w-8 h-8 bg-gray-300 rounded-full"></div>
+        )}
+      </div>
+    );
+  };
+  
+  const displayValue = (value) => {
+    if (value === null || value === undefined || value === '') {
+      return '-'
+    }
+    return String(value)
+  }
+
+
+//Page render
+  return (
+    <main className="relative w-full h-auto min-h-screen mx-auto px-4 :px-8 psm:px-6 lgy-0 bg-[#24272C]  shadow-[36px_40px_56px_rgba(0,0,0,0.19)] ">
+    <div className ="  absolute top-0 bottom-0  left-12 right-12  bg-[#F2F3F5]" >
+      <header className="bg-white shadow-sm w-full h-16 flex items-center justify-between px-6 gap-10 top-0 left-0 m-0">
+        <div className="flex items-center gap-3">
+          <Menu className="h-6 w-6 text-gray-500 mr-4" />
+          <div className="flex items-center gap-3">
+            {/*<img src="asian paints logo" className="w-8 h-8" alt="Asian Paints Logo" />*/}
+            <span className="font-inter font-medium text-[16px] text-[#475569] leading-[19px]">{orgName}</span>
           </div>
         </div>
+
+        <div className="flex justify-end gap-3 absolute right-6 top-2">
+          {/*<div className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-300 rounded-md shadow-md">
+            <span className="w-6 h-6 border-2 border-gray-500 rounded-full"></span>
+            <span className="w-6 h-6 border-2 border-gray-500 rounded-full"></span>
+          </div>
+          <div className="relative flex items-center justify-center bg-white border border-gray-300 rounded-md w-14 h-11">
+            <div className="absolute inset-0 flex justify-center items-center border-2 border-gray-600 rounded-md"></div>
+            <div className="absolute w-5 h-2 bg-gray-600"></div>
+          </div>*/}
+          <div className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-300 rounded-md shadow-md">
+            <img src="notification.png" className="w-7 h-7" alt="Notification Icon" />
+          </div>
+          {/*<div className="relative flex items-center justify-center bg-white border border-gray-300 rounded-md w-14 h-11">
+            <div className="absolute inset-0 flex justify-center items-center border-2 border-gray-600 rounded-md"></div>
+            <div className="absolute w-5 h-2 bg-gray-600"></div>
+          </div>*/}
+       </div>
+
       </header>
 
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            <a href="#" className="text-blue-500 border-b-2 border-blue-500 px-3 py-4 text-sm font-medium">Home</a>
-            <a href="#" className="text-gray-500 hover:text-gray-700 px-3 py-4 text-sm font-medium">Brands</a>
-            <a href="#" className="text-gray-500 hover:text-gray-700 px-3 py-4 text-sm font-medium">Surveys</a>
-            <a href="#" className="text-gray-500 hover:text-gray-700 px-3 py-4 text-sm font-medium">Cohorts</a>
-            <a href="#" className="text-gray-500 hover:text-gray-700 px-3 py-4 text-sm font-medium">Reports & Analytics</a>
-            <a href="#" className="text-gray-500 hover:text-gray-700 px-3 py-4 text-sm font-medium">People</a>
-            <a href="#" className="text-gray-500 hover:text-gray-700 px-3 py-4 text-sm font-medium">Settings</a>
-          </div>
-        </div>
-      </nav>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <div className="flex items-center">
-            <h2 className="text-2xl font-bold text-green-600 mb-2">Organisation created</h2>
-            <p className="text-gray-600">Start your surveys and get customer insights</p>
+     {/* Navigation Bar */}
+        <nav className="bg-white border border-slate-300 w-full h-auto "> {/* Adjusted to avoid overlap */}
+          <div className="flex px-6 py-1">
+            <button className="bg-slate-100 text-blue-500 font-bold text-sm px-3 py-1 rounded-md mr-2">Home</button>
+            <button className="bg-white text-slate-600 hover:text-slate-700 text-sm px-3 py-1 rounded-md mr-2">Brands</button>
+            <button className="bg-white text-slate-600 hover:text-slate-700 text-sm px-3 py-1 rounded-md mr-2">Surveys</button>
+            <button className="bg-white text-slate-600 hover:text-slate-700 text-sm px-3 py-1 rounded-md mr-2">Cohorts</button>
+            <button className="bg-white text-slate-600 hover:text-slate-700 text-sm px-3 py-1 rounded-md mr-2">Reports & Analytics</button>
+            <button className="bg-white text-slate-600 hover:text-slate-700 text-sm px-3 py-1 rounded-md mr-2">People</button>
+            <button className="bg-white text-slate-600 hover:text-slate-700 text-sm px-3 py-1 rounded-md">Settings</button>
           </div>
-          <button
-            onClick={() => setShowActionCards(!showActionCards)}
-            className="text-blue-500 text-sm font-medium"
-          >
-            {showActionCards ? 'Hide Action Cards' : 'Show Action Cards'}
-          </button>
+        </nav>
+
+     {/* Content */}
+      <div className="w-full px-6 py-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center mb-4 sm:mb-0">
+            <h2 className="text-2xl font-bold text-green-600 mr-2 mb-2 sm:mb-0">
+             Organisation created.
+          </h2>
+          <p className="text-2xl font-light text-gray-600">
+            Start your surveys and get customer insights
+          </p>
         </div>
+        <button 
+          onClick={() => setShowActionCards(!showActionCards)}
+          className="text-blue-500 text-sm font-medium hover:text-blue-600 transition-colors"
+        >
+          {showActionCards ? 'Hide Action Cards' : 'Show Action Cards'}
+        </button>
+      </div>
+    </div>
+
 
         {showActionCards && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {actionCards.map((card, index) => (
-              <div
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8 px-6 py-4">
+          {actionCards.map((card, index) => (
+            <div
               key={index}
-              className="bg-white p-6 rounded-lg shadow"
-              onClick={card.title === 'Cohorts' ? handleCreateCohortClick : undefined}>
-            
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">{card.title}</h3>
-                <div className="flex items-baseline mb-2">
-                  <span className="text-3xl font-bold text-gray-900 mr-2">{card.count}</span>
-                  {card.pendingCount && (
-                    <span className="text-sm text-gray-500">{card.pendingCount} Pending Invitations</span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-600">{card.description}</p>
-                <a href="#" className="text-blue-500 text-sm font-medium mt-4 inline-block">
-                  {card.title === 'Invite People' ? 'Invite members' : `Create ${card.title.toLowerCase()}`}
-                </a>
+              className="bg-white p-4 rounded shadow cursor-pointer transition-shadow hover:shadow-md"
+              onClick={card.title === 'Cohorts' ? handleCreateCohortClick : undefined}
+            >
+              <div className="mb-2">
+                <span className="text-base font-medium text-gray-500">{card.count}</span>
               </div>
-            ))}
-          </div>
+              <h3 className="text-sm font-normal text-gray-600 mb-1">{card.title}</h3>
+              <div className="flex items-center mb-2">
+                <p className="text-lg font-medium text-blue-600 mb-2">
+                  {card.title === 'People Invited' ? 'Invite members' : `Create ${card.title.toLowerCase()}`}
+                </p>
+                {card.title === 'Invite People' && card.pendingCount !== undefined && (
+                <span className="text-xs text-gray-500">{card.pendingCount}    Pending Invitations</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 leading-tight">{card.description}</p>
+            </div>
+          ))}
+        </div>
         )}
         {openCreateCohortbox && <CreateCohortBox onCloseCohort={handleCreateCohortClose} />}
         <div className="bg-white p-6 rounded-lg shadow mb-8">
@@ -167,76 +334,119 @@ const LandingPage = () => {
                 <button className="text-gray-500 hover:text-gray-700 px-3 py-2 text-sm font-medium">Cohort Comparisons</button>
               </div>
 
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead>
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cohort</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ended</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Conversations Initiated</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Conversations Completed</th>
-                    {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Survey</th> */}
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NPS</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {cohorts.map((cohort, index) => (
-                    <tr key={index}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        <div>{cohort.name}</div>
-                        {cohortStates[index].summaryAvailable && (
-                          <div className="text-xs text-blue-500">Summary Available</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              <table className="w-full border-collapse border border-gray-300 table-fixed">
+            <thead className="bg-gray-50">
+              <tr>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Cohort" />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Status" />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Started" />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Ended" />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Conv. Init." />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Conv. Comp." />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Survey" />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="NPS" />
+                </th>
+                <th scope="col" className="w-1/9 p-1 sm:p-2 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300 group">
+                  <TruncatedCell content="Actions" />
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-300">
+              {cohorts.map((cohort, index) => (
+                <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs border border-gray-300 group relative">
+                    <TruncatedCell
+                      content={
+                        <>
+                          <div className="font-medium text-gray-900">{displayValue(cohort.name)}</div>
+                          {cohortStates[index]?.summaryAvailable && (
+                            <div className="text-[8px] sm:text-[10px] text-blue-500">Summary Available</div>
+                          )}
+                        </>
+                      }
+                    />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs border border-gray-300 group relative">
+                    <TruncatedCell
+                      content={
+                        <span className={`px-1 py-0.5 inline-flex text-[8px] sm:text-[10px] leading-4 font-semibold rounded-full ${
                           cohort.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                          cohort.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                          cohort.status === 'in progress' ? 'bg-blue-100 text-blue-800' :
                           cohort.status === 'Draft' ? 'bg-gray-100 text-gray-800' :
-                          'bg-yellow-100 text-yellow-800'
+                          cohort.status === 'scheduled' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
                         }`}>
-                          {cohort.status}
+                          {displayValue(cohort.status)}
                         </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cohort.started}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cohort.ended}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cohort.conversationsInitiated}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cohort.conversationsCompleted}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cohort.survey}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{cohort.nps}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        {!cohortStates[index].initiated ? (
-                          <button
-                            onClick={() => handleCohortInitiate(index)}
-                            className="text-blue-600 hover:text-blue-900"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </button>
-                        ) : (
-                          <div className="flex items-center space-x-2">
-                            <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500"></div>
-                            <button
-                              onClick={() => handleMagnifyingGlassClick(index)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              <Search className="h-5 w-5" />  
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
+                      }
+                    />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs text-gray-500 border border-gray-300 group relative">
+                    <TruncatedCell content={displayValue(cohort.started)} />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs text-gray-500 border border-gray-300 group relative">
+                    <TruncatedCell content={displayValue(cohort.ended)} />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs text-gray-500 border border-gray-300 group relative">
+                    <TruncatedCell content={displayValue(cohort.conversationsInitiated)} />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs text-gray-500 border border-gray-300 group relative">
+                    <TruncatedCell content={displayValue(cohort.conversationsCompleted)} />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs text-gray-500 border border-gray-300 group relative">
+                    <TruncatedCell content={displayValue(cohort.survey)} />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs text-gray-500 border border-gray-300 group relative">
+                    <TruncatedCell content={displayValue(cohort.nps)} />
+                  </td>
+                  <td className="p-1 sm:p-2 text-[10px] sm:text-xs font-medium border border-gray-300">
+                    {!cohortStates[index]?.initiated ? (
+                      <button
+                        onClick={() => handleCohortInitiate(index)}
+                        className="text-blue-600 hover:text-blue-900 focus:outline-none focus:underline"
+                        aria-label="Initiate cohort"
+                      >
+                        <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <div className="flex items-center space-x-1">
+                        <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-t-2 border-b-2 border-blue-500"></div>
+                        <button
+                          onClick={() => handleMagnifyingGlassClick(index)}
+                          className="text-blue-600 hover:text-blue-900 focus:outline-none focus:underline"
+                          aria-label="View cohort summary"
+                        >
+                          <Search className="h-3 w-3 sm:h-4 sm:w-4" />  
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </>
           )}
         </div>
-      </main>
+      
 
       {showInitiatedMessage && (
         <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-md shadow-lg flex items-center">
@@ -281,7 +491,11 @@ const LandingPage = () => {
         </div>
       )}
     </div>
+    </main>
   )
 };
 
 export default LandingPage;
+
+
+

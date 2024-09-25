@@ -13,6 +13,7 @@ const  CreateCohortBox =({onCloseCohort}) => {
   const [uploadedFile, setSuccessMessage] = useState(null)
   const [successMessage, setUploadedFile] = useState(null)
   const [errorMessage, setErrorMessage] = useState(null)
+  const [filePath, setFilePath] = useState(null)
   const [uploadProgress, setUploadProgress] = useState(0)
   const fileInputRef = useRef(null)
   const token = localStorage.getItem('token') // Retrieves token from local storage
@@ -43,6 +44,8 @@ const  CreateCohortBox =({onCloseCohort}) => {
           }
         })
         if (response.status === 200) {
+
+          setFilePath(response.data.result.file_path)
           setUploadProgress(100) // Complete progress bar if successful
           setSuccessMessage('File uploaded successfully!')
         }
@@ -60,8 +63,10 @@ const  CreateCohortBox =({onCloseCohort}) => {
           "cohort_id": "string",
           "provider_config": {},
           "template_config": {},
-          "data_path": "string",
-          "name": "string"
+          "data_path": filePath,
+          "name": variables.name,
+          "start_date":startDate ,
+          "end_date":endDate
         
       }, {
         headers: {
@@ -96,6 +101,9 @@ const  CreateCohortBox =({onCloseCohort}) => {
     }
   }
   
+
+
+  // Page render
   return (
         
         <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
